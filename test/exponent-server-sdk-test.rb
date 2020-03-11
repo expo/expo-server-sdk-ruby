@@ -42,6 +42,54 @@ class ExponentServerSdkTest < Minitest::Test
     @mock.verify
   end
 
+  def test_publish_with_gateway_timeout_error
+    @response_mock.expect(:code, 504)
+    @response_mock.expect(:code, 504)
+    # the server will return an html error instead of a json error, and we should handle it
+    @response_mock.expect(:body, <<~HTML)
+      <html>
+      <head><title>504 Gateway Time-out</title></head>
+      <body>
+      <center><h1>504 Gateway Time-out</h1></center>
+      <hr><center>openresty/1.15.8.2</center>
+      </body>
+      </html>
+    HTML
+    @mock.expect(:post, @response_mock, client_args)
+
+    exception = assert_raises Exponent::Push::UnknownError do
+      @exponent.publish(messages)
+    end
+
+    assert_equal('504 Gateway Time-out', exception.message)
+
+    @mock.verify
+  end
+
+  def test_publish_with_service_unavailable_error
+    @response_mock.expect(:code, 503)
+    @response_mock.expect(:code, 503)
+    # the server will return an html error instead of a json error, and we should handle it
+    @response_mock.expect(:body, <<~HTML)
+      <html>
+      <head><title>503 Service Temporarily Unavailable</title></head>
+      <body>
+      <center><h1>503 Service Temporarily Unavailable</h1></center>
+      <hr><center>openresty/1.15.8.2</center>
+      </body>
+      </html>
+    HTML
+    @mock.expect(:post, @response_mock, client_args)
+
+    exception = assert_raises Exponent::Push::UnknownError do
+      @exponent.publish(messages)
+    end
+
+    assert_equal('503 Service Temporarily Unavailable', exception.message)
+
+    @mock.verify
+  end
+
   def test_publish_with_unknown_error
     @response_mock.expect(:code, 400)
     @response_mock.expect(:body, error_body.to_json)
@@ -70,6 +118,30 @@ class ExponentServerSdkTest < Minitest::Test
     end
 
     assert_equal(message, exception.message)
+
+    @mock.verify
+  end
+
+  def test_publish_with_device_not_registered_error_as_second_item
+    @response_mock.expect(:code, 200)
+    @response_mock.expect(:body, {
+      'data' => [
+        { "id" => "147d26ac-ff58-40c4-a468-84eae84079e8", "status" => "ok" },
+        {
+          'id' => '2cbed589-47ac-4fe2-a5bd-c6ba6536925c',
+          'status' => 'error',
+          'message' => 'The recipient device is not registered with FCM.',
+          'details' => { 'error' => 'DeviceNotRegistered', 'fault' => 'developer' }
+        }]
+    }.to_json)
+    @mock.expect(:post, @response_mock, client_args)
+
+    exception = assert_raises Exponent::Push::DeviceNotRegisteredError do
+      @exponent.publish(messages)
+    end
+
+    assert_equal('The recipient device is not registered with FCM.',
+                 exception.message)
 
     @mock.verify
   end
